@@ -26,7 +26,7 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    username = Column(String(32), primary_key=True)
+    username = Column(String(32), unique=True)
     login = Column(String(32))
     passhash = Column(Binary(32))
     public = Column(Boolean)
@@ -67,7 +67,7 @@ class Token(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(ForeignKey(User.id))
-    token = Column(Binary(256))
+    token = Column(Binary(32))
     expire = Column(DateTime)
 
 

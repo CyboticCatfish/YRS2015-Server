@@ -2,29 +2,34 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>{% block title %}Title{% endblock %}</title>
+    <title>{% block title %}Code: 404{% endblock %}</title>
 
     <script src="/static/js/jquery-2.1.4.min.js"></script>
 
     <link rel="stylesheet" href="/static/css/materialize.min.css">
     <script src="/static/js/materialize.min.js"></script>
 
+    <link rel="stylesheet" href="/static/css/main.css">
+
+    <link rel='shortcut icon' href='/static/images/catfish.png'>
+
 </head>
 <body>
 <header>
   <nav>
     <div class="nav-wrapper blue darken-4">
-      <a href="#" class="brand-logo">Cybotic Catfish</a>
-      <ul id="nav-mobile" class="right hide-on-med-and-down">
+      <a href="#" class="brand-logo">Code: 404</a>
+      <ul id="nav-mobile" class="blue darken-3 right hide-on-med-and-down">
         <li><a href="/levels">Levels</a></li>
         <li><a href="">Download</a></li>
-        <!--<li><a href="collapsible.html">JavaScript</a></li>-->
       </ul>
     </div>
   </nav>
 </header>
+<div class="container">
 {% block body %}
-data
+
 {% endblock %}
+</div>
 </body>
 </html>

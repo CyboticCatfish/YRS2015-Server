@@ -7,14 +7,16 @@ from sqlalchemy import sql, asc
 from converters import user_to_xml
 from hashlib import sha256
 from datetime import datetime, timedelta
-from os import urandom
+from os import urandom, _exists
 from binascii import b2a_hex, a2b_hex
+from image import get_and_crop, surf_to_string
+from io import BytesIO
 import re
 import random
 
 
 app = Flask(__name__)
-app.debug = True
+# app.debug = True
 
 
 def get_arg(name):
@@ -124,7 +126,7 @@ def login(username, password):
     conn = engine.connect()
     query = sql.select([User.__table__]).where(
         (User.login == username.lower())
-        & (User.public == 1)
+        & (User.passhash == pass_hash)
     )
 
     print(query)
@@ -138,7 +140,7 @@ def login(username, password):
 
 @app.route("/", methods=["GET"])
 def hello_world():
-    return "Hello, world!"
+    return render_template("home.html")
 
 
 @app.route("/level", methods=["GET"])
@@ -200,12 +202,12 @@ def get_level():
 def subscribe_to_level():
     try:
         token = get_header("token")
-        level_id = get_arg("level_id")
+        level_id = get_arg("id")
 
         if token is None:
             raise MissingInformation("token")
         if level_id is None:
-            raise MissingInformation("level_id")
+            raise MissingInformation("id")
     except MissingInformation as e:
         return make_error(e.message)
 
@@ -270,6 +272,90 @@ def upload_level():
     return make_status("success", "Level saved.")
 
 
+@app.route("/level/get/details", methods=["GET"])
+def get_level_details():
+    try:
+        level_id = get_arg("id")
+        if level_id is None:
+            raise MissingInformation("id")
+    except MissingInformation as e:
+        return make_error(e.message)
+
+    try:
+        try:
+            level_id = int(level_id)
+        except ValueError:
+            raise InvalidInformation("id", "Must be integer")
+    except InvalidInformation as e:
+        return make_error(e.message)
+
+    conn = engine.connect()
+    try:
+        query = sql.select([Level.creator, Level.name]).where(Level.id == level_id).limit(1)
+        res = conn.execute(query)
+        row = res.fetchone()
+        user_id = row["creator"]
+        level_name = row["name"]
+
+    except InvalidInformation as e:
+        return make_error(e.message)
+
+    query = sql.select([User.username]).where(User.id == user_id).limit(1)
+    print(query)
+    res = conn.execute(query)
+    user_name = res.fetchone()["username"]
+
+    x = ",".join((level_name, user_name))
+    print(x)
+    return x
+
+
+@app.route("/level/get/image", methods=["GET"])
+def get_level_image():
+    try:
+        level_id = get_arg("id")
+        size = (int(get_arg("x")), int(get_arg("y")))
+
+
+        if level_id is None:
+            raise MissingInformation("id")
+
+        try:
+            level_id = int(level_id)
+        except ValueError:
+            raise InvalidInformation("id", "Not an integer")
+
+        conn = engine.connect()
+        query = sql.select([Level.name, Level.creator, Level.timestamp])\
+            .where(Level.id == level_id).limit(1)
+        res = conn.execute(query)
+        rows = res.fetchall()
+        if len(rows) != 1:
+            raise InvalidInformation("id", "Not a level")
+
+        for row in rows:
+            imagepath = "levels/%s/%s-%s.png" % (str(row["creator"]), str(row["name"]), str(row["timestamp"]))
+            if not _exists(imagepath):
+                imagepath = "static/images/logo.png"
+            print(imagepath)
+            if any(x is None for x in size):
+                cropped = open(imagepath).read()
+            else:
+                cropped = get_and_crop(imagepath, size)
+                cropped = surf_to_string(cropped)
+
+            return make_response(
+                cropped,
+                200,
+                {"Content-type": "image/png"}
+            )
+
+    except InvalidInformation as e:
+        return make_error(e.message)
+    except MissingInformation as e:
+        return make_error(e.message)
+
+
 @app.route("/level/get/list", methods=["GET"])
 def get_level_list():
     try:
@@ -286,10 +372,10 @@ def get_level_list():
 def create_user():
     conn = engine.connect()
     try:
-        login = get_header("login")
-        name = get_header("name")
-        password = get_header("password")
-        public = get_header("public")
+        user_login = request.form["login"]
+        name = request.form["name"]
+        password = request.form["password"]
+        public = request.form["public"]
 
         if login is None:
             raise MissingInformation("login")
@@ -303,26 +389,31 @@ def create_user():
 
     try:
         # check login is valid
-        login = login.lower()
+        user_login = user_login.lower()
 
-        # max 32 chars
-        if len(login) > 32:
-            raise InvalidInformation("login", "Must be less that 32 characters.")
+        # max 15 chars
+        if len(user_login) > 15:
+            raise InvalidInformation("login", "Must be less than 15 characters.")
 
         # alphanumerics only
-        if re.match("[^a-z0-9]", login):
+        if re.match("[^a-z0-9]", user_login):
             raise InvalidInformation("login", "Can only contain alphanumeric characters")
 
         # check unique
-        if bool(len(tuple(*conn.execute(sql.select([User.id]).where(User.login == login))))):
+        query = sql.select([User.id])\
+            .where(User.login == user_login)
+        print(query)
+        res = conn.execute(query)
+        if bool(len(res.fetchall())):
             raise InvalidInformation("login", "Login is in use")
 
         # check screen name is valid
         if len(name) > 32:
-            raise InvalidInformation("name", "Must be less that 32 characters")
+            raise InvalidInformation("name", "Must be less than 32 characters")
 
         # check password is valid
-            # IT IS ALWAYS VALID
+        if len(password) > 15:
+            raise InvalidInformation("passwrd", "Must be less than 15 characters")
 
         # check public is valid
         if public is None:
@@ -344,20 +435,24 @@ def create_user():
     pass_hash = hasher.digest()
 
     # push to DB
-    query = sql.insert(
-        [User.login, User.username, User.passhash, User.public],
-        values=(login, name, pass_hash, public)
+    query = sql.insert(User.__table__,
+        values={
+            User.login: user_login,
+            User.username: name,
+            User.passhash: pass_hash,
+            User.public: public
+        }
     )
+
     res = conn.execute(query)
     return make_status("success", "User created")
 
 
 @app.route("/user/login", methods=["POST"])
 def get_token():
-    print(request.data)
     try:
-        username = get_header("username")
-        password = get_header("password")
+        username = request.form["username"]
+        password = request.form["password"]
         if username is None:
             raise MissingInformation("username")
         if password is None:
@@ -366,6 +461,7 @@ def get_token():
         return make_error(e.message)
 
     try:
+        username = username.lower()
         user = login(username, password)
         if user is None:
             raise InvalidLogin
@@ -392,14 +488,16 @@ def get_token():
     return token_hex
 
 
-@app.route("/user/subscriptions", methods=["GET"])
+@app.route("/user/subscriptions", methods=["GET", "POST"])
 def get_subscriptions():
     try:
         token = get_header("token")
         if token is None:
             user_id = get_arg("user_id")
             if user_id is None:
-                raise MissingInformation("user_id")
+                token = request.form["token"]
+                if token is None:
+                    raise MissingInformation("user_id")
         else:
             user_id = None
     except MissingInformation as e:
@@ -418,10 +516,11 @@ def get_subscriptions():
 
     res = conn.execute(query)
 
-    return ",".join(str(row["level_id"]) for row in res.fetchall())
-
+    x = ",".join(str(row["level_id"]) for row in res.fetchall())
+    print(x)
+    return x
 
 
 if __name__ == "__main__":
-    context = ("server.crt", "server.key")
-    app.run("0.0.0.0", ssl_context=context)
+    # context = ("server.crt", "server.key")
+    app.run("0.0.0.0", 4000, debug=True)
