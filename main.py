@@ -90,7 +90,9 @@ def get_user_id_from_token(token=None):
     if token is None:
         token = get_header("token")
         if token is None:
-            raise MissingInformation("token")
+            token = request.form["token"]
+            if token is None:
+                raise MissingInformation("token")
 
     token_bin = a2b_hex(token)
     print(token_bin)
@@ -141,6 +143,11 @@ def login(username, password):
 @app.route("/", methods=["GET"])
 def hello_world():
     return render_template("home.html")
+
+
+@app.route("/submit", methods=["GET"])
+def submit_level():
+    return render_template("submit.html")
 
 
 @app.route("/level", methods=["GET"])
@@ -233,7 +240,7 @@ def subscribe_to_level():
     return make_status("success", "Subscribed to level")
 
 
-@app.route("/levels/post", methods=["POST"])
+@app.route("/level/submit", methods=["POST"])
 def upload_level():
     try:
         user_id = get_user_id_from_token()
@@ -241,10 +248,9 @@ def upload_level():
         return make_error(e.message)
     except InvalidInformation as e:
         return make_error(e.message)
-
     try:
-        name = get_header("level-name")
-        public = get_header("public")
+        name = request.form["level-name"]
+        public = request.form["public"]
         if name is None:
             raise MissingInformation("level-name")
         if public is None:
@@ -253,7 +259,12 @@ def upload_level():
             try:
                 public = bool(int(public))
             except ValueError:
-                raise InvalidInformation("public", "Not a number.")
+                if public == "on":
+                    public = True
+                elif public == "off":
+                    public = False
+                else:
+                    raise InvalidInformation("public", "Not a number.")
     except MissingInformation as e:
         return make_error(e.message)
     except InvalidInformation as e:
@@ -261,15 +272,41 @@ def upload_level():
 
     timestamp = datetime.now()
 
-    conn = engine.connect()
-    query = sql.insert(
-        (Level.creator, Level.name, Level.timestamp, Level.public),
-        values=(user_id, name, timestamp, public)
-    )
-
     f = request.files["level"]
     f.save("levels/%s/%s-%s.lvl" % (user_id, name, timestamp))
-    return make_status("success", "Level saved.")
+
+    conn = engine.connect()
+    query = sql.insert(Level.__table__,
+                       values={
+                           Level.creator: user_id,
+                           Level.name: name,
+                           Level.timestamp: timestamp,
+                           Level.public: public
+                       }
+    )
+    conn.execute(query)
+
+    query = sql.select([Level.id]).where(
+        (Level.name == name) &
+        (Level.timestamp == timestamp)
+    ).limit(1)
+    res = conn.execute(query)
+    level_id = None
+    for row in res.fetchall():
+        level_id = row["id"]
+
+    if level_id is None:
+        return make_error(level_id)
+
+    query = sql.insert(Subscription.__table__,
+                       values={
+                           Subscription.level_id: level_id,
+                           Subscription.user_id: user_id
+                       }
+                       )
+    conn.execute(query)
+
+    return make_status("success", "Level saved.", str(level_id))
 
 
 @app.route("/level/get/details", methods=["GET"])
@@ -316,10 +353,8 @@ def get_level_image():
         level_id = get_arg("id")
         size = (int(get_arg("x")), int(get_arg("y")))
 
-
         if level_id is None:
             raise MissingInformation("id")
-
         try:
             level_id = int(level_id)
         except ValueError:
@@ -523,4 +558,4 @@ def get_subscriptions():
 
 if __name__ == "__main__":
     # context = ("server.crt", "server.key")
-    app.run("0.0.0.0", 4000, debug=True)
+    app.run("0.0.0.0")

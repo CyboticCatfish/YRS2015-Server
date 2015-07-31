@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block head %}
+
+{% endblock %}
+<!--<script type="text/javascript">-->
+    <!--$(document).ready(function(){-->
+        <!--$("#submit-form").submit(function() {-->
+            <!--this.preventDefault()-->
+        <!--})-->
+    <!--})-->
+<!--</script>-->
+{% block body %}
+<form id="submit-form" action="/level/submit" method="post" enctype="multipart/form-data">
+    <label for="submit-form-token">Token</label>
+    <input type="text" name="token" id="submit-form-token">
+    <label for="submit-form-title">Level title</label>
+    <input type="text" name="level-name" id="submit-form-title">
+
+    <input type="checkbox" checked="checked" name="public" id="submit-form-public">
+    <label for="submit-form-public">Public</label><br />
+    <input type="file" name="level"><br />
+    <input type="submit" value="Submit" id="submit-form-submit">
+
+</form>
+{% endblock %}
