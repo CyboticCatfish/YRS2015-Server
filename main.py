@@ -238,8 +238,8 @@ def get_level():
 @app.route("/level/subscribe", methods=["POST"])
 def subscribe_to_level():
     try:
-        token = get_header("token")
-        level_id = get_arg("id")
+        token = request.form["token"]
+        level_id = request.form["id"]
 
         if token is None:
             raise MissingInformation("token")
@@ -613,4 +613,4 @@ def get_subscriptions():
 
 if __name__ == "__main__":
     # context = ("server.crt", "server.key")
-    app.run("0.0.0.0", 80, debug=True)
+    app.run("0.0.0.0", 80)
