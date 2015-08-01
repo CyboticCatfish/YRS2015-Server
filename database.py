@@ -26,8 +26,8 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    username = Column(String(32), unique=True)
-    login = Column(String(32))
+    login = Column(String(32), unique=True)
+    username = Column(String(32))
     passhash = Column(Binary(32))
     public = Column(Boolean)
 
@@ -77,6 +77,16 @@ class Subscription(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(ForeignKey(User.id))
     level_id = Column(ForeignKey(Level.id))
+
+
+class Score(Base):
+    __tablename__ = "scores"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(ForeignKey(User.id))
+    level_id = Column(ForeignKey(Level.id))
+    score = Column(Integer)
+
 
 
 Base.metadata.create_all(engine)

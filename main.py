@@ -2,12 +2,12 @@ __author__ = 'leviwright'
 
 from flask import Flask, request, make_response, render_template
 from errors import *
-from database import engine, User, Level, Token, Subscription
-from sqlalchemy import sql, asc
+from database import engine, User, Level, Token, Subscription, Score
+from sqlalchemy import sql, asc, desc
 from converters import user_to_xml
 from hashlib import sha256
 from datetime import datetime, timedelta
-from os import urandom, _exists
+from os import urandom, _exists, mkdir
 from binascii import b2a_hex, a2b_hex
 from image import get_and_crop, surf_to_string
 from io import BytesIO
@@ -41,7 +41,6 @@ def get_user():
 
     user_name = get_arg("user_name")
 
-    print(user_name, user_id)
 
     if user_id is None and user_name is None:
         raise NoUser()
@@ -86,7 +85,6 @@ def get_user_from_id(user_id):
 
 
 def get_user_id_from_token(token=None):
-    print("test", token)
     if token is None:
         token = get_header("token")
         if token is None:
@@ -95,7 +93,6 @@ def get_user_id_from_token(token=None):
                 raise MissingInformation("token")
 
     token_bin = a2b_hex(token)
-    print(token_bin)
     conn = engine.connect()
     query = sql.select([Token.__table__])\
         .limit(1)\
@@ -103,10 +100,8 @@ def get_user_id_from_token(token=None):
         .where(Token.token == token_bin)
 
     rows = conn.execute(query).fetchall()
-    print(rows)
 
     for row in rows:
-        print(row)
         try:
             if row[Token.expire] < datetime.now():
                 raise InvalidInformation("token", "Token has expired")
@@ -124,14 +119,11 @@ def login(username, password):
     hasher.update(password.encode("utf8"))
     pass_hash = hasher.digest()
 
-    print(username, pass_hash)
     conn = engine.connect()
     query = sql.select([User.__table__]).where(
         (User.login == username.lower())
         & (User.passhash == pass_hash)
     )
-
-    print(query)
 
     for row in conn.execute(query).fetchall():
         print(row.passhash)
@@ -149,6 +141,14 @@ def hello_world():
 def submit_level():
     return render_template("submit.html")
 
+
+@app.route("/signup", methods=["GET"])
+def signup_form():
+    return render_template("signup.html")
+
+@app.route("/download", methods=["GET"])
+def download():
+    return render_template("download.html")
 
 @app.route("/level", methods=["GET"])
 def web_level():
@@ -169,6 +169,36 @@ def web_level():
         return make_error(e.message)
     except InvalidInformation as e:
         return make_error(e.message)
+
+
+@app.route("/levels", methods=["GET"])
+def web_levels():
+    conn = engine.connect()
+    query = sql.select([Level.name, Level.creator, Level.id]).limit(50)
+    res = conn.execute(query)
+
+    levels = []
+    for row in res.fetchall():
+        query = sql.select([User.username]).where(User.id == row["creator"])
+        res2 = conn.execute(query)
+        for row2 in res2.fetchall():
+            levels.append({
+                "id": row["id"],
+                "name": row["name"],
+                "user": row2["username"]
+            })
+            break
+        continue
+
+    return render_template("levels.html", levels=levels)
+
+
+@app.route("/login", methods=["GET"])
+def web_login():
+    try:
+        return render_template("login.html", token=request.args["token"])
+    except:
+        return render_template("login.html")
 
 
 @app.route("/level/get", methods=["GET"])
@@ -275,6 +305,9 @@ def upload_level():
     f = request.files["level"]
     f.save("levels/%s/%s-%s.lvl" % (user_id, name, timestamp))
 
+    f = request.files["image"]
+    f.save("levels/%s/%s-%s.png" % (user_id, name, timestamp))
+
     conn = engine.connect()
     query = sql.insert(Level.__table__,
                        values={
@@ -372,7 +405,6 @@ def get_level_image():
             imagepath = "levels/%s/%s-%s.png" % (str(row["creator"]), str(row["name"]), str(row["timestamp"]))
             if not _exists(imagepath):
                 imagepath = "static/images/logo.png"
-            print(imagepath)
             if any(x is None for x in size):
                 cropped = open(imagepath).read()
             else:
@@ -401,6 +433,26 @@ def get_level_list():
         return make_error(e.message)
 
     return make_status("success", "Got user", user_to_xml(user))
+
+
+@app.route("/level/scoreboard/submit", methods=["POST"])
+def post_level_score():
+    user_id = get_user_id_from_token()
+    level_id = int(request.form["level_id"])
+    score = int(request.form["score"])
+
+    conn = engine.connect()
+    query = sql.insert(Score.__table__,
+               values={
+                   Score.user_id: user_id,
+                   Score.level_id: level_id,
+                   Score.score: score
+               })
+
+    conn.execute(query)
+
+    return "true"
+
 
 
 @app.route("/user/create", methods=["POST"])
@@ -451,13 +503,10 @@ def create_user():
             raise InvalidInformation("passwrd", "Must be less than 15 characters")
 
         # check public is valid
-        if public is None:
-            public = "1"
+        if public == "on":
+            public = 1
         else:
-            try:
-                public = bool(int(public))
-            except ValueError:
-                raise InvalidInformation("public", "Must be integer")
+            public = 0
 
     except InvalidInformation as e:
         return make_error(e.message)
@@ -480,6 +529,13 @@ def create_user():
     )
 
     res = conn.execute(query)
+
+    query = sql.select([User.id]).where(User.login == user_login)
+    res = conn.execute(query)
+
+    for rows in res.fetchall():
+        mkdir("/".join(("level", str(rows["id"]))))
+
     return make_status("success", "User created")
 
 
@@ -552,10 +608,9 @@ def get_subscriptions():
     res = conn.execute(query)
 
     x = ",".join(str(row["level_id"]) for row in res.fetchall())
-    print(x)
     return x
 
 
 if __name__ == "__main__":
     # context = ("server.crt", "server.key")
-    app.run("0.0.0.0")
+    app.run("0.0.0.0", 80, debug=True)

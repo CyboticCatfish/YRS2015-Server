@@ -17,14 +17,17 @@ def crop_center(image, size):
     rect = Rect((0, 0), size)
     res_surf = Surface(size, SRCALPHA, 32)
     blit_pos = [0, 0]
-    if res_surf.get_width() > rect.width:
-        blit_pos[0] = (res_surf.get_width()-rect.width) // 2
+    if image.get_width() > rect.width:
+        blit_pos[0] = (-image.get_width()+rect.width) // 2
     else:
-        rect.x = (-res_surf.get_width()+rect.width) // 2
-    if res_surf.get_height() > rect.height:
-        blit_pos[1] = (res_surf.get_height()-rect.height) // 2
+        rect.x = (image.get_width()-rect.width) // 2
+    if image.get_height() > rect.height:
+        blit_pos[1] = (-image.get_height()+rect.height) // 2
     else:
-        rect.y = (-res_surf.get_height()+rect.height) // 2
+        rect.y = (image.get_height()-rect.height) // 2
+
+    print(rect)
+    print(blit_pos)
 
     res_surf.blit(crop(image, rect), blit_pos)
     return res_surf

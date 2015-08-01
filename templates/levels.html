@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Levels - Code:404{% endblock %}
+
+{% block head %}
+<script>
+    $(document).ready(function(){
+       $(".collection-subitem").hide();
+        $(".collection-item").click(function() {
+            $(".collection-subitem").slideUp();
+            $(".collection-item").removeClass("active");
+            $(this).next().slideDown();
+            $(this).addClass("active")
+        });
+        $(".level-link a").click(function() {
+            $.post("/level/subscribe", {
+                token: Cookies.get("token"),
+                id: $(this).data("level-id")
+            }, function(data){
+                console.log(data)
+            });
+        })
+    });
+</script>
+{% endblock %}
+
+{% block body %}
+<ul class="collection">
+    {% for level in levels %}
+        <li class="collection-item">{{ level["name"] }}<div class="secondary-content">{{ level["user"] }}</div></li>
+        <li class="collection-item collection-subitem level-link">{{ level["user"] }}<a class="secondary-content" href="#" data-level-id='{{ level["id"] }}'>Subscribe</a></li>
+    {% endfor %}
+</ul>
+{% endblock %}

@@ -1,0 +1,3 @@
+curl -X POST localhost:5000/user/create --data "login=doctorn" --data "name=Doctor N" --data "password=password" --data "public=1"
+curl -X POST localhost:5000/user/login --data "username=doctorn" --data "password=password"
+

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Sign Up - Code:404{% endblock %}
+
+{% block head %}
+    <script>
+        $(document).ready(function(){
+            $("#success-div").hide();
+
+            $("#signup").submit(function(){
+                var login = $("#signup-login").val();
+                var display_name = $("#signup-name").val();
+                var password = $("#signup-password").val();
+                var user_public = $("#signup-public").val();
+
+                $.post("/user/create",
+                        {
+                            login: login,
+                            name: display_name,
+                            password: password,
+                            "public": user_public
+                        }, function(data){
+                            if (data !== "undefined") {
+                                $("#success-div").slideDown()
+                            } else {
+                                console.log(data)
+                            }
+                        });
+                return false;
+            })
+
+        });
+    </script>
+{% endblock %}
+
+{% block body %}
+    <div id="signup-div">
+        <form id="signup">
+            <label for="signup-login">Login</label>
+            <input id="signup-login" type="text">
+            <label for="signup-name">Display Name</label>
+            <input id="signup-name" type="text">
+            <label for="signup-password">Password</label>
+            <input id="signup-password" type="password">
+            <input id="signup-public" type="checkbox" checked="checked">
+            <label for="signup-public">Public</label>
+            <br/>
+            <input type="submit" value="Register" class="submit">
+        </form>
+    </div>
+
+    <div id="success-div" class="center-align">
+        <h2>User created</h2>
+        <h5>You can now <a href="/login">login</a>.</h5>
+    </div>
+{% endblock %}
