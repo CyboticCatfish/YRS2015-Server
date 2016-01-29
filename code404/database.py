@@ -20,8 +20,7 @@ db_client = MongoClient()
 
 db = db_client["code404"]
 
-settings = db_client["settings"]  # don't think this was ever used
-users = db_client["users"]
-groups = db_client["groups"]
-levels = db_client["levels"]
-tokens = db_client["tokens"]
+settings = db["settings"]  # don't think this was ever used
+users = db["users"]
+groups = db["groups"]
+levels = db["levels"]
