@@ -20,10 +20,10 @@ from flask import Flask, request, make_response, render_template
 
 from . import app
 from .error import InvalidInformation, InvalidUser, InvalidLogin, NoUser, MissingInformation
-from .database import engine, User, Level, Token, Subscription, Score
+from .database import levels
 from .converters import user_to_xml
 from .image import get_and_crop, surf_to_string
-from .api import make_error
+from .api import make_error, get_arg
 
 from sqlalchemy import sql
 # app.debug = True
@@ -53,15 +53,17 @@ def web_level():
         level_id = get_arg("id")
         if level_id is None:
             raise MissingInformation("id")
-        conn = engine.connect()
-        query = sql.select([Level]).where(Level.id == level_id)
-        rows = conn.execute(query)
 
-        for row in rows.fetchall():
-            # print(row)
-            return render_template("level.html", level=row)
-        else:
-            raise InvalidInformation("id", "Not found")
+        try:
+            level_id = int(level_id)
+        except ValueError:
+            raise InvalidInformation("id", "level not foudn")
+
+        res = levels.find_one({"id": level_id})
+        if res is None:
+            raise InvalidInformation("id", "level not found")
+        return render_template("level.html", level=res)
+
     except MissingInformation as e:
         return make_error(e.message)
     except InvalidInformation as e:
@@ -70,24 +72,9 @@ def web_level():
 
 @app.route("/levels", methods=["GET"])
 def web_levels():
-    conn = engine.connect()
-    query = sql.select([Level.name, Level.creator, Level.id]).limit(50)
-    res = conn.execute(query)
+    res = levels.find({"public": True}, {"_id": 1, "name": 1, "creator": 1})
 
-    levels = []
-    for row in res.fetchall():
-        query = sql.select([User.username]).where(User.id == row["creator"])
-        res2 = conn.execute(query)
-        for row2 in res2.fetchall():
-            levels.append({
-                "id": row["id"],
-                "name": row["name"],
-                "user": row2["username"]
-            })
-            break
-        continue
-
-    return render_template("levels.html", levels=levels)
+    return render_template("levels.html", levels=res)
 
 
 @app.route("/login", methods=["GET"])

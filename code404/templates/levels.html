@@ -43,8 +43,8 @@
 {% block body %}
 <ul class="collection">
     {% for level in levels %}
-        <li class="collection-item">{{ level["name"] }}<div class="secondary-content">{{ level["user"] }}</div></li>
-        <li class="collection-item collection-subitem level-link">{{ level["user"] }}<a class="secondary-content" href="#" data-level-id='{{ level["id"] }}'>Subscribe</a></li>
+        <li class="collection-item">{{ level.name }}<div class="secondary-content">{{ level.creator }}</div></li>
+        <li class="collection-item collection-subitem level-link">{{ level.creator }}<a class="secondary-content" href="#" data-level-id='{{ level.id }}'>Subscribe</a></li>
     {% endfor %}
 </ul>
 {% endblock %}
