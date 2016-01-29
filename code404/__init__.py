@@ -1,0 +1,11 @@
+from flask import Flask
+
+app = Flask(__name__)
+
+from . import (
+    converters,
+    database,
+    error,
+    image,
+    site
+)
