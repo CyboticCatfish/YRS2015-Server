@@ -16,17 +16,16 @@
 
 from . import app
 from .error import MissingInformation, InvalidLogin, InvalidUser, InvalidInformation, NoUser
-from .database import engine, User, Token, Level, Subscription
+from .database import users, levels
 
 from flask import request
-from sqlalchemy import sql, asc, desc
 from hashlib import sha256
-from datetime import datetime, timedelta
 from os import urandom, _exists, mkdir
 from binascii import b2a_hex, a2b_hex
 # from io import BytesIO
 import re
 import random
+import time
 
 def get_arg(name):
     try:
@@ -54,12 +53,11 @@ def get_user():
     if user_id is None and user_name is None:
         raise NoUser()
     elif user_id is not None:
-        x = sql.select([User]).where(User.id == user_id).limit(1)
-        conn = engine.connect()
-        for row in conn.execute(x):
-            return row
+        res = users.find_one({"id": user_id})
+        return res
     elif user_name is not None:
-        return "test"
+        res = users.find_one({"name": user_name})
+        return res
 
 
 def escape_xml(text):
@@ -85,15 +83,11 @@ def make_error(message):
 
 
 def get_user_from_id(user_id):
-    conn = engine.connect()
-    query = sql.select(User).where(User.id == user_id).limit(1)
-    for row in conn.execute(query):
-        return row
-    else:
-        return None
+    res = users.find_one({"id": user_id})
+    return res
 
 
-def get_user_id_from_token(token=None):
+def get_user_from_token(token=None):
     if token is None:
         token = get_header("token")
         if token is None:
@@ -102,41 +96,27 @@ def get_user_id_from_token(token=None):
                 raise MissingInformation("token")
 
     token_bin = a2b_hex(token)
-    conn = engine.connect()
-    query = sql.select([Token.__table__])\
-        .limit(1)\
-        .order_by(asc(Token.expire))\
-        .where(Token.token == token_bin)
+    res = users.find_one({
+        "tokens.code": token,
+        "tokens.expires": {
+            "$lt": time.time()
+        }
+    })
 
-    rows = conn.execute(query).fetchall()
-
-    for row in rows:
-        try:
-            if row[Token.expire] < datetime.now():
-                raise InvalidInformation("token", "Token has expired")
-            else:
-                return row["user_id"]
-        except:
-            return row["user_id"]
-    else:
-        raise InvalidInformation("token", "Not a valid token.")
-
+    return res
 
 def login(username, password):
+    res = users.find_one({
+        "login": username.lower()
+    })
 
     hasher = sha256()
     hasher.update(password.encode("utf8"))
+    hasher.update(res["salt"])
     pass_hash = hasher.digest()
 
-    conn = engine.connect()
-    query = sql.select([User.__table__]).where(
-        (User.login == username.lower())
-        & (User.passhash == pass_hash)
-    )
-
-    for row in conn.execute(query).fetchall():
-        print(row.passhash)
-        return row
+    if pass_hash == res["pass_hash"]:
+        return res
     else:
         return None
 
@@ -157,23 +137,16 @@ def get_level():
         try:
             level_id = int(level_id)
         except ValueError:
-            raise InvalidInformation("id", "Not a number.")
+            raise InvalidInformation("id", "Not an integer.")
     except InvalidInformation as e:
         return make_error(e.message)
 
     # perform query
-    try:
-        conn = engine.connect()
-        query = sql.select([Level.creator, Level.timestamp, Level.name]).where(Level.id == level_id).limit(1)
-        rows = conn.execute(query)
-        for row in rows.fetchall():
-            print(row[2])
-            return open("levels/%s/%s-%s.lvl" % (row[0], row[2], row[1])).read()
-        else:
-            raise InvalidInformation("id", "No level exists with this ID")
-    except InvalidInformation as e:
-        return make_error(e.message)
-
+    res = levels.find_one({"id": level_id})
+    if res is None:
+        make_error(InvalidInformation("id", "No level exists with this ID").message)
+    else:
+        return open("levels/%s/%s-%s.lvl" % (row[0], row[2], row[1])).read()
 
 @app.route("/level/subscribe", methods=["POST"])
 def subscribe_to_level():
@@ -189,23 +162,14 @@ def subscribe_to_level():
         return make_error(e.message)
 
     try:
-        user_id = get_user_id_from_token(token)
+        user = get_user_from_token(token)
     except InvalidInformation as e:
         return make_error(e.message)
 
-    print(level_id, user_id)
-
-    conn = engine.connect()
-    query = sql.insert(
-        Subscription,
-        values={Subscription.level_id: level_id,
-                Subscription.user_id: user_id}
+    users.update_one(
+        {"_id": user["_id"]},
+        {"$push": {"subscriptions": level_id}}
     )
-    x = conn.execute(query)
-    # if x:
-    #     print("1")
-    # else:
-    #     print("2")
 
     return make_status("success", "Subscribed to level")
 
@@ -214,7 +178,7 @@ def subscribe_to_level():
 @app.route("/level/submit", methods=["POST"])
 def upload_level():
     try:
-        user_id = get_user_id_from_token()
+        user = get_user_from_token()
     except MissingInformation as e:
         return make_error(e.message)
     except InvalidInformation as e:
@@ -222,8 +186,12 @@ def upload_level():
     try:
         name = request.form["level-name"]
         public = request.form["public"]
+
         if name is None:
             raise MissingInformation("level-name")
+        elif re.match("/|^\.\.?", name):
+            raise InvalidInformation("level-name", "Contains banned character sequences")
+
         if public is None:
             public = True
         else:
@@ -241,45 +209,25 @@ def upload_level():
     except InvalidInformation as e:
         return make_error(e.message)
 
-    timestamp = datetime.now()
+    timestamp = time.time()
 
     f = request.files["level"]
-    f.save("levels/%s/%s-%s.lvl" % (user_id, name, timestamp))
+    f.save("levels/%s/%s-%s.lvl" % (user["login"], name, str(timestamp)))
 
     f = request.files["image"]
-    f.save("levels/%s/%s-%s.png" % (user_id, name, timestamp))
+    f.save("levels/%s/%s-%s.png" % (user["login"], name, str(timestamp)))
 
-    conn = engine.connect()
-    query = sql.insert(Level.__table__,
-                       values={
-                           Level.creator: user_id,
-                           Level.name: name,
-                           Level.timestamp: timestamp,
-                           Level.public: public
-                       }
-    )
-    conn.execute(query)
-
-    query = sql.select([Level.id]).where(
-        (Level.name == name) &
-        (Level.timestamp == timestamp)
-    ).limit(1)
-    res = conn.execute(query)
-
-    level_id = None
-    for row in res.fetchall():
-        level_id = row["id"]
+    level_id = levels.insert_one({
+        "creator": user["login"],
+        "name": name,
+        "timestamp": timestamp,
+        "public": public
+    })
 
     if level_id is None:
         return make_error(level_id)
 
-    query = sql.insert(Subscription.__table__,
-                       values={
-                           Subscription.level_id: level_id,
-                           Subscription.user_id: user_id
-                       }
-                       )
-    conn.execute(query)
+    users.update(user, {"$push": {"subscriptions": level_id}})
 
     return make_status("success", "Level saved.", str(level_id))
 
@@ -301,24 +249,10 @@ def get_level_details():
     except InvalidInformation as e:
         return make_error(e.message)
 
-    conn = engine.connect()
-    try:
-        query = sql.select([Level.creator, Level.name]).where(Level.id == level_id).limit(1)
-        res = conn.execute(query)
-        row = res.fetchone()
-        user_id = row["creator"]
-        level_name = row["name"]
+    level = levels.find_one({"_id": level_id})
+    creator = users.find_one({"login": creator})
 
-    except InvalidInformation as e:
-        return make_error(e.message)
-
-    query = sql.select([User.username]).where(User.id == user_id).limit(1)
-    print(query)
-    res = conn.execute(query)
-    user_name = res.fetchone()["username"]
-
-    x = ",".join((level_name, user_name))
-    print(x)
+    x = ",".join((level["name"], user["name"]))
     return x
 
 
@@ -330,75 +264,73 @@ def get_level_image():
 
         if level_id is None:
             raise MissingInformation("id")
-        try:
-            level_id = int(level_id)
-        except ValueError:
-            raise InvalidInformation("id", "Not an integer")
 
-        conn = engine.connect()
-        query = sql.select([Level.name, Level.creator, Level.timestamp])\
-            .where(Level.id == level_id).limit(1)
-        res = conn.execute(query)
-        rows = res.fetchall()
-        if len(rows) != 1:
-            raise InvalidInformation("id", "Not a level")
+        level = levels.find_one({"_id": id})
+        if level is None:
+            raise InvalidInformation("id", "level not found")
 
-        for row in rows:
-            imagepath = "levels/%s/%s-%s.png" % (str(row["creator"]), str(row["name"]), str(row["timestamp"]))
-            if not _exists(imagepath):
-                imagepath = "static/images/logo.png"
-            if any(x is None for x in size):
-                cropped = open(imagepath).read()
-            else:
-                cropped = get_and_crop(imagepath, size)
-                cropped = surf_to_string(cropped)
 
-            return make_response(
-                cropped,
-                200,
-                {"Content-type": "image/png"}
-            )
+        imagepath = "levels/%s/%s-%s.png" % (level["creator"], level["name"], str(level["timestamp"]))
 
+        if not _exists(imagepath):
+            imagepath = "static/images/logo.png"
+
+        if any(x is None for x in size):
+            cropped = open(imagepath).read()
+
+        else:
+            cropped = get_and_crop(imagepath, size)
+            cropped = surf_to_string(cropped)
+
+        return make_response(
+            cropped,
+            200,
+            {"Content-type": "image/png"}
+        )
     except InvalidInformation as e:
         return make_error(e.message)
     except MissingInformation as e:
         return make_error(e.message)
 
+# # DOESN'T DO WHAT IT SAYS IT DOES [STOP]
+# # DO NOT TRUST [STOP]
+# # WHY DID I EVEN WRITE THIS [STOP]
+# @app.route("/level/get/list", methods=["GET"])
+# def get_level_list():
+#     try:
+#         user = get_user()
+#     except NoUser as e:
+#         return make_error(e.message)
+#     except InvalidUser as e:
+#         return make_error(e.message)
+#
+#     return make_status("success", "Got user", user_to_xml(user))
 
-@app.route("/level/get/list", methods=["GET"])
-def get_level_list():
-    try:
-        user = get_user()
-    except NoUser as e:
-        return make_error(e.message)
-    except InvalidUser as e:
-        return make_error(e.message)
 
-    return make_status("success", "Got user", user_to_xml(user))
-
-
+# No error checking FTW! And no validity checking... /posts 2^64 as score/
 @app.route("/level/scoreboard/submit", methods=["POST"])
 def post_level_score():
-    user_id = get_user_id_from_token()
-    level_id = int(request.form["level_id"])
+    user = get_user_from_token()
+    level_id = request.form["level_id"]
     score = int(request.form["score"])
 
-    conn = engine.connect()
-    query = sql.insert(Score.__table__,
-               values={
-                   Score.user_id: user_id,
-                   Score.level_id: level_id,
-                   Score.score: score
-               })
-
-    conn.execute(query)
+    levels.update_one(
+        {"_id": level_id},
+        {"$push": {"scores":
+            {
+                user: {
+                    "score": score,
+                    "timestamp": timestamp
+                }
+            }
+        }}
+    )
 
     return "true"
 
 
 @app.route("/user/create", methods=["POST"])
 def create_user():
-    conn = engine.connect()
     try:
         user_login = request.form["login"]
         name = request.form["name"]
@@ -427,14 +359,6 @@ def create_user():
         if re.match("[^a-z0-9]", user_login):
             raise InvalidInformation("login", "Can only contain alphanumeric characters")
 
-        # check unique
-        query = sql.select([User.id])\
-            .where(User.login == user_login)
-        print(query)
-        res = conn.execute(query)
-        if bool(len(res.fetchall())):
-            raise InvalidInformation("login", "Login is in use")
-
         # check screen name is valid
         if len(name) > 32:
             raise InvalidInformation("name", "Must be less than 32 characters")
@@ -453,29 +377,27 @@ def create_user():
         return make_error(e.message)
 
     # all information is valid
-    # hash password
-    hasher = sha256()
-    hasher.update(password.encode("utf8"))
 
+    # hash dat pass
+    hasher = sha256()
+    salt = urandom(16)
+
+    hasher.update(password.encode("utf8"))
+    hasher.update(salt)
     pass_hash = hasher.digest()
 
     # push to DB
-    query = sql.insert(User.__table__,
-        values={
-            User.login: user_login,
-            User.username: name,
-            User.passhash: pass_hash,
-            User.public: public
-        }
-    )
+    res = users.insert({
+        "login": login,
+        "name": name,
+        "salt": salt,
+        "pass_hash": pass_hash,
+        "public": public,
+        "subscriptions": [],
+        "tokens": []
+    })
 
-    res = conn.execute(query)
-
-    query = sql.select([User.id]).where(User.login == user_login)
-    res = conn.execute(query)
-
-    for rows in res.fetchall():
-        mkdir("/".join(("level", str(rows["id"]))))
+    mkdir("/".join(("level", str(login))))
 
     return make_status("success", "User created")
 
@@ -501,19 +423,12 @@ def get_token():
         return make_error(e.message)
 
     hasher = sha256()
-    hasher.update(urandom(16))
+    hasher.update(urandom(32))
     token = hasher.digest()
 
-    expire = datetime.now() + timedelta(weeks=52)
+    expire = time.time() + (60*60*24*7*52)  # 52 weeks later
 
-    conn = engine.connect()
-    query = sql.insert(Token.__table__, values={
-        Token.token: token,
-        Token.user_id: user.id,
-        Token.expire: expire
-    })
-
-    res = conn.execute(query)
+    users.update(user, {"$push": {"tokens": {"code": token, "expires": expire}}})
 
     token_hex = b2a_hex(token)
 
@@ -524,29 +439,13 @@ def get_token():
 def get_subscriptions():
     try:
         token = get_header("token")
-        if token is None:
-            user_id = get_arg("user_id")
-            if user_id is None:
-                token = request.form["token"]
-                if token is None:
-                    raise MissingInformation("user_id")
-        else:
-            user_id = None
     except MissingInformation as e:
         return make_error(e.message)
 
     try:
-        if user_id is None:
-            user_id = get_user_id_from_token(token)
+        user = get_user_from_token(token)
     except InvalidInformation as e:
         return make_error(e.message)
 
-    conn = engine.connect()
-    query = sql.select([Subscription.level_id])\
-        .where(Subscription.user_id == user_id)\
-        .limit(50)
-
-    res = conn.execute(query)
-
-    x = ",".join(str(row["level_id"]) for row in res.fetchall())
+    x = ",".join(user["subscriptions"])
     return x
