@@ -388,7 +388,7 @@ def create_user():
 
     # push to DB
     res = users.insert({
-        "login": login,
+        "login": user_login,
         "name": name,
         "salt": salt,
         "pass_hash": pass_hash,
