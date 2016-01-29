@@ -337,7 +337,7 @@ def create_user():
         password = request.form["password"]
         public = request.form["public"]
 
-        if login is None:
+        if user_login is None:
             raise MissingInformation("login")
         if name is None:
             raise MissingInformation("name")
@@ -397,7 +397,7 @@ def create_user():
         "tokens": []
     })
 
-    mkdir("/".join(("level", str(login))))
+    mkdir("/".join(("level", str(user_login))))
 
     return make_status("success", "User created")
 
