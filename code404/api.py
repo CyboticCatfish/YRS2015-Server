@@ -380,7 +380,7 @@ def create_user():
 
     # hash dat pass
     hasher = sha256()
-    salt = urandom(16)
+    salt = b2a_hex(urandom(16))
 
     hasher.update(password.encode("utf8"))
     hasher.update(salt)
