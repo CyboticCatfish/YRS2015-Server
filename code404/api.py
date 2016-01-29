@@ -113,7 +113,7 @@ def login(username, password):
     hasher = sha256()
     hasher.update(password.encode("utf8"))
     hasher.update(res["salt"])
-    pass_hash = hasher.digest()
+    pass_hash = hasher.hexdigest()
 
     if pass_hash == res["pass_hash"]:
         return res
@@ -384,7 +384,7 @@ def create_user():
 
     hasher.update(password.encode("utf8"))
     hasher.update(salt)
-    pass_hash = hasher.digest()
+    pass_hash = hasher.hexdigest()
 
     # push to DB
     res = users.insert({
@@ -424,7 +424,7 @@ def get_token():
 
     hasher = sha256()
     hasher.update(urandom(32))
-    token = hasher.digest()
+    token = hasher.hexdigest()
 
     expire = time.time() + (60*60*24*7*52)  # 52 weeks later
 
