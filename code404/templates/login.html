@@ -19,38 +19,44 @@
 {% block title %}Login - Code: 404{% endblock %}
 
 {% block head %}
-    <script>
-        $(document).ready(function(){
-            $("#login").submit(function(){
-                var username = $("#login-user").val();
-                var password = $("#login-password").val();
+  <!-- <script>
+    $(document).ready(function(){
+      $("#login").submit(function(){
+        var username = $("#login-user").val();
+        var password = $("#login-password").val();
 
-                $.post("/user/login",
-                        {
-                            username: username,
-                            password: password
-                        }, function(data) {
-                            if (data !== "undefined"){
-                                Cookies.set("token", data);
-                                window.location.replace("/");
-                            } else {
-                                return false;
-                            }
-                        });
-                return false;
-            })
-        })
-    </script>
+        $.post("/user/login",
+          {
+            username: username,
+            password: password
+          }, function(data) {
+            if (data !== "undefined"){
+              Cookies.set("token", data);
+              window.location.replace("/");
+            } else {
+              return false;
+            }
+          });
+        return false;
+      })
+    })
+  </script> -->
 {% endblock %}
 
 {% block body %}
-    <form id="login" method="post" target="/user/login">
-        <label for="login-user">Username</label>
-        <input id="login-user" name="username" type="text">
-        <label for="login-password">Password</label>
-        <input id="login-password" name="password" type="password">
-
-        <input type="submit" value="Login" class="submit">
-    </form>
-    <p class="register-link">If you don't have an account, you can register <a href="/signup">here</a></p>
+  {% if error %}
+    <p>{{ error }}</p>
+  {% endif %}
+  <form id="login" method="POST">
+    <div class="input-field">
+      <label for="login-user">Username</label>
+      <input id="login-user" name="username" type="text">
+    </div>
+    <div class="input-field">
+      <label for="login-password">Password</label>
+      <input id="login-password" name="password" type="password">
+    </div>
+    <input type="submit" value="Login" class="submit">
+  </form>
+  <p class="register-link">If you don't have an account, you can register <a href="/signup">here</a></p>
 {% endblock %}
