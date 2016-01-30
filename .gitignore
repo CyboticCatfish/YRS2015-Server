@@ -61,6 +61,6 @@ target/
 data.db
 server.crt
 server.key
-levels/*
-!levels/PLACEHOLDER
+level/*
+!level/PLACEHOLDER
 config.ini
