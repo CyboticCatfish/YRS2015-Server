@@ -14,14 +14,45 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from flask import Flask
+from pymongo import MongoClient
+from flask import jsonify
 
-app = Flask(__name__)
+db_client = MongoClient()
+
+db = db_client["code404"]
+
+def get_arg(name):
+    try:
+        return request.args.get(name)
+    except IndexError:
+        return None
+
+
+def get_header(name):
+    try:
+        return request.headers[name]
+    except KeyError:
+        return None
+
+
+def escape_xml(text):
+    return text.replace("<", "&lt;").replace(">", "&gt;")
+
+
+def make_status(status, message, data=None):
+    response = jsonify({
+        "status": status,
+        "message": message,
+        "data": data
+    })
+    return response
+
+
+def make_error(message, code=400):
+    return make_response(make_status("failed", message), code)
+
 
 from . import (
-    api,
-    converters,
-    error,
-    image,
-    site
+    level,
+    user
 )

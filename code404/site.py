@@ -15,15 +15,16 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from flask import Flask, request, make_response, render_template
+from flask import Flask, request, make_response, render_template, redirect
 
 
 from . import app
 from .error import InvalidInformation, InvalidUser, InvalidLogin, NoUser, MissingInformation
-from .database import levels
+from .api.level import levels
 from .converters import user_to_xml
 from .image import get_and_crop, surf_to_string
 from .api import make_error, get_arg
+from . import api
 
 from sqlalchemy import sql
 # app.debug = True
@@ -39,9 +40,22 @@ def submit_level():
     return render_template("submit.html")
 
 
-@app.route("/signup", methods=["GET"])
+@app.route("/signup", methods=["GET", "POST"])
 def signup_form():
-    return render_template("signup.html")
+    if request.method == "GET":
+        return render_template("signup.html")
+    elif request.method == "POST":
+        username = request.form["username"]
+        display_name = request.form["display_name"]
+        password = request.form["password"]
+        public = request.form["public"]
+        print("Creating user with %s." % str(request.form))
+
+        try:
+            api.user.create_user(username, display_name, password, public)
+            return render_template("signup_complete.html", username=username)
+        except Exception as e:
+            return render_template("signup.html", error=str(e))
 
 @app.route("/download", methods=["GET"])
 def download():
@@ -77,9 +91,20 @@ def web_levels():
     return render_template("levels.html", levels=res)
 
 
-@app.route("/login", methods=["GET"])
+@app.route("/login", methods=["GET", "POST"])
 def web_login():
-    try:
-        return render_template("login.html", token=request.args["token"])
-    except:
+    if request.method == "GET":
         return render_template("login.html")
+    elif request.method == "POST":
+        username = request.form["username"]
+        password = request.form["password"]
+        try:
+            user = api.user.login(username, password)
+        except InvalidLogin:
+            return render_template("login.html", username=username, error="Invalid Login")
+
+        token = api.user.make_token(user["username"])
+
+        response = redirect("/", 302)
+        response.set_cookie("token", token)
+        return response
